@@ -1,0 +1,212 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<Module>
+<ModulePrefs
+  title="Jenkins build data gadget"
+  description="A gadget that gets and displays job information for all jobs of one view."
+  author="Martynas Mickevicius"
+  author_email="mmartynas@gmail.com"
+  height="0"
+  width="700" >
+  <Require feature="dynamic-height" />
+</ModulePrefs>
+<UserPref name="urlkey" default_value="default" />
+<Content type="html"><![CDATA[
+<div>
+  <table id="jobsTable">
+    <tr>
+      <th>Šaka ir versijos #</th>
+      <th>Būklė</th>
+      <th>Nuoroda į apk</th>
+      <th>Parsisiųsta kartų</th>
+      <th>Versija paruošta</th>
+    </tr>
+  </table>
+</div>
+
+<style type="text/css">
+#jobsTable {
+    font: 82% arial, sans-serif;
+    border-collapse: collapse;
+}
+
+#jobsTable th, #jobsTable td {
+    text-align: center;
+    padding: 4px;
+}
+
+#jobsTable th {
+    background-color: #eee;
+}
+
+#jobsTable table, #jobsTable th, #jobsTable td {
+    border: 1px solid #ddd;
+}
+</style>
+
+<script type="text/javascript">
+var urlKey = "";
+
+function onGadgetLoaded() {
+    var prefs = new gadgets.Prefs();
+    urlKey = prefs.getString("urlkey");
+
+    makeGetJobsRequest();
+}
+
+function makeGetJobsRequest() {
+    var params = {};
+    params[gadgets.io.RequestParameters.CONTENT_TYPE] = gadgets.io.ContentType.JSON;
+    var url = "https://marsrutai-lt-android.ci.cloudbees.com/view/builds/api/json";
+    gadgets.io.makeRequest(url, jobsResponse, params);
+}
+
+function jobsResponse(obj) {
+    shortenUrl("http://www.google.com")
+    var jsondata = obj.data["jobs"];
+    for (var i = 0; i < jsondata.length; i++) {
+        makeGetJobDetailsRequest(jsondata[i]['name']);
+    }
+}
+
+function makeGetJobDetailsRequest(jobName) {
+    var params = {};
+    params[gadgets.io.RequestParameters.CONTENT_TYPE] = gadgets.io.ContentType.JSON;
+    // This URL returns a JSON-encoded string that represents a JavaScript object
+    var url = "https://marsrutai-lt-android.ci.cloudbees.com/job/"+jobName+"/lastSuccessfulBuild/api/json";
+    gadgets.io.makeRequest(url, getJobDetailsResponseCallback(jobName), params);
+};
+
+function getJobDetailsResponseCallback(jobName) {
+  return function jobDetailsResponse(obj) { 
+    var jsondata = obj.data;
+    
+    // Process returned JS object as an associative array
+    var displayName = jsondata['fullDisplayName'];
+    var downloadLink = jsondata['artifacts'][0]['relativePath'];
+    var timestamp = jsondata['timestamp'];
+
+    var date = new Date(timestamp);
+    var components = [
+        date.getFullYear(),
+        date.getMonth() + 1,
+        date.getDate(),
+        date.getHours(),
+        date.getMinutes(),
+        date.getSeconds()
+    ];
+
+    var fc = components.map(function(n) {
+        if (n < 10) {
+            return '0' + n;
+        }
+        return n;
+    });
+
+    // will display time in 10:30:23 format
+    var formattedTime = fc[0] + '.' + fc[1] + '.' + fc[2] + ' ' + fc[3] + ':' + fc[4] + ':' + fc[5];
+
+    var nameElement = document.createElement('p');
+    nameElement.innerHTML = displayName;
+
+    var buildTimeElement = document.createElement('p');
+    buildTimeElement.innerHTML = formattedTime;
+
+    var statusElement = document.createElement('img');
+    statusElement.setAttribute('src', 'https://marsrutai-lt-android.ci.cloudbees.com/job/'+jobName+'/badge/icon');
+    var statusLinkElement = document.createElement('a');
+    statusLinkElement.setAttribute('href', 'https://marsrutai-lt-android.ci.cloudbees.com/job/'+jobName+'/');
+    statusLinkElement.setAttribute('target', '_blank');
+    statusLinkElement.appendChild(statusElement);
+
+    var downloadElement = document.createElement('a');
+    downloadElement.setAttribute('href', 'https://marsrutai-lt-android.ci.cloudbees.com/job/'+jobName+'/lastSuccessfulBuild/artifact/' + downloadLink);
+    downloadElement.setAttribute('id', jobName);
+    downloadElement.innerHTML = "apk";
+
+    var downloadCountElement = document.createElement('p');
+    downloadCountElement.setAttribute('id', jobName.toLowerCase() + '_downloadcount');
+    downloadCountElement.innerHTML = "?";
+
+    var row = document.createElement('tr');
+    row.setAttribute('id', jobName.toLowerCase() + '_row');
+    row.appendChild(inTd(nameElement));
+    row.appendChild(inTd(statusLinkElement));
+    row.appendChild(inTd(downloadElement));
+    row.appendChild(inTd(downloadCountElement));
+    row.appendChild(inTd(buildTimeElement));
+
+    appendInOrder(row)
+
+    shortenUrl(downloadElement.getAttribute("href"), downloadElement.getAttribute("id"));
+
+    gadgets.window.adjustHeight();
+  }
+}
+
+function appendInOrder(row) {
+    var table = document.getElementById('jobsTable');
+    var appendedRows = table.getElementsByTagName('tr');
+    for (var i = 0; i < appendedRows.length; i++) {
+        if (appendedRows[i].getAttribute('id') > row.getAttribute('id')) {
+            table.insertBefore(row, appendedRows[i]);
+            return;
+        }
+    }
+
+    // first row, or has to be last
+    table.appendChild(row);
+}
+
+function inTd(el) {
+    var tdElement = document.createElement('td');
+    tdElement.appendChild(el);
+    return tdElement;
+}
+
+function shortenUrl(longUrl, linkId) {
+    var params = {};
+    params[gadgets.io.RequestParameters.CONTENT_TYPE] = gadgets.io.ContentType.JSON;
+    params[gadgets.io.RequestParameters.METHOD] = gadgets.io.MethodType.POST;
+    params[gadgets.io.RequestParameters.HEADERS] = {"Content-type": "application/json"}
+    params[gadgets.io.RequestParameters.POST_DATA] = '{"longUrl": "'+longUrl+'", "key": "'+ urlKey +'"}';
+    var url = "https://www.googleapis.com/urlshortener/v1/url";
+    gadgets.io.makeRequest(url, getShortenUrlResponseCallback(linkId), params);
+}
+
+function getShortenUrlResponseCallback(linkId) {
+  return function getShortenUrlResponse(obj) {
+    var jsondata = obj.data;
+    var linkElement = document.getElementById(linkId);
+    if (linkElement != null) {
+        // sometimes this gets called more times than there are urls to shorten
+        // in those cases linkElement is null, therefore do this check so no exception is thrown
+        linkElement.setAttribute('href', jsondata["id"]);
+        linkElement.innerHTML = jsondata["id"];
+        getDownloadCount(jsondata["id"], linkId);
+    }
+  }
+}
+
+function getDownloadCount(url, linkId) {
+    var params = {};
+    params[gadgets.io.RequestParameters.CONTENT_TYPE] = gadgets.io.ContentType.JSON;
+    params[gadgets.io.RequestParameters.METHOD] = gadgets.io.MethodType.GET;
+    var url = "https://www.googleapis.com/urlshortener/v1/url?shortUrl=" + url + "&projection=FULL";
+    gadgets.io.makeRequest(url, getDownloadCountResponseCallback(linkId), params);
+}
+
+function getDownloadCountResponseCallback(linkId) {
+  return function getDownloadCountResponse(obj) {
+    var jsondata = obj.data;
+    var downloadCountElement = document.getElementById(linkId.toLowerCase() + "_downloadcount");
+    if (downloadCountElement != null) {
+        downloadCountElement.innerHTML = jsondata["analytics"]["allTime"]["longUrlClicks"];
+    }
+  }
+}
+
+gadgets.util.registerOnLoadHandler(onGadgetLoaded);
+</script>
+
+]]></Content>
+</Module>
